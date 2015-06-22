@@ -270,7 +270,7 @@ protected:
 
   visualization_msgs::MarkerArray marker_array_;
 
-  dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfig> dyn_rec_server_;
+  dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfigConfig> dyn_rec_server_;
 
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
