@@ -44,7 +44,7 @@
 #include <eigen_conversions/eigen_msg.h>
 
 #include <dynamic_reconfigure/server.h>
-#include <navigation_collision_checker/NavCollisionCheckerConfig.h>
+#include <navigation_collision_checker/NavCollisionCheckerConfigConfig.h>
 
 class NavCollisionChecker
 {
