@@ -83,6 +83,7 @@ public:
     desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
 
     safe_twist_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel_safe", 1, false);
+    marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
 
     /*
     prior_roll_angle_ = 0.0;
@@ -140,15 +141,18 @@ public:
       return;
     }
 
-    double step_time = 0.5;
+    double step_time = 0.75;
 
     Eigen::Affine3d test_pose;
     tf::poseMsgToEigen(robot_pose_ptr_->pose, test_pose);
 
     Eigen::Affine3d pose_change = this->integrateTwist(*msg, step_time);
 
+    marker_array_.markers.clear();
+
     for (size_t i = 0; i < 3; ++i){
-      test_pose = pose_change * test_pose;
+      test_pose = test_pose * pose_change;
+      this->addMarker(test_pose, i);
       bool in_collision = isInCollision(test_pose);
 
       if (in_collision){
@@ -161,10 +165,12 @@ public:
         twist_out.angular.z = 0.0;
 
         safe_twist_pub_.publish(twist_out);
+        marker_pub_.publish(marker_array_);
         return;
       }
     }
 
+    marker_pub_.publish(marker_array_);
     safe_twist_pub_.publish(twist_out);
   }
 
@@ -190,7 +196,15 @@ public:
     collision_detection::CollisionResult collision_result;
 
     planning_scene_->checkCollision(collision_request, collision_result, *robot_state_, planning_scene_->getAllowedCollisionMatrix());
-    ROS_INFO_STREAM("Current state is " << (collision_result.collision ? "in" : "not in") << " self collision. Distance: " << collision_result.distance);
+    //ROS_INFO_STREAM("Current state is " << (collision_result.collision ? "in" : "not in") << " self collision. Distance: " << collision_result.distance);
+
+    if (collision_result.collision){
+      collision_detection::CollisionResult::ContactMap& contacts = collision_result.contacts;
+      ROS_INFO_THROTTLE(1.0, "Detected %d collisions. This message is throttled.", (int)contacts.size());
+      return true;
+    }
+
+    return false;
   }
 
   //For now, this assumes only angular rate in z and linear vel in x
@@ -213,10 +227,36 @@ public:
       int_vec.z() = angle_change;
     }
 
+    //std::cout << "\n" << int_vec << "\n";
+
     return Eigen::AngleAxisd(int_vec.z(), Eigen::Vector3d::UnitZ()) *
                              Eigen::Translation3d(int_vec.x(),
                                                   int_vec.y(),
                                                   0.0);
+  }
+
+  void addMarker(const Eigen::Affine3d& pose, size_t count)
+  {
+    visualization_msgs::Marker marker;
+    //marker.header.stamp = req.point.header.stamp;
+    marker.header.frame_id = "world";
+    marker.type = visualization_msgs::Marker::ARROW;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.color.r = 0.0;
+    marker.color.b = 1.0;
+    marker.color.a = 1.0;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.05;
+    marker.scale.z = 0.05;
+    marker.id = count;
+
+    marker.ns ="nav_coll_check";
+    //marker.pose.orientation.w = 1.0;
+
+    //tf::quaternionEigenToMsg(Eigen::Quaterniond(pose.rotation()), marker.pose.orientation);
+    tf::poseEigenToMsg(pose, marker.pose);
+
+    marker_array_.markers.push_back(marker);
   }
 
 protected:
@@ -226,6 +266,7 @@ protected:
   ros::Subscriber joint_state_sub_;
 
   ros::Publisher safe_twist_pub_;
+  ros::Publisher marker_pub_;
 
   boost::shared_ptr<tf::TransformListener> tfl_;
   ros::Duration wait_duration_;
@@ -236,8 +277,9 @@ protected:
   planning_scene::PlanningScenePtr planning_scene_;
 
   geometry_msgs::PoseStampedConstPtr robot_pose_ptr_;
-
   sensor_msgs::JointState virtual_link_joint_states_;
+
+  visualization_msgs::MarkerArray marker_array_;
 
   //bool p_use_high_fidelity_projection_;
   //std::string p_target_frame_;
