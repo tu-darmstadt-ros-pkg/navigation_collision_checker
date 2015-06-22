@@ -241,7 +241,7 @@ public:
     marker_array_.markers.push_back(marker);
   }
 
-  void dynRecParamCallback(navigation_collision_checker::NavCollisionCheckerConfig &config, uint32_t level)
+  void dynRecParamCallback(navigation_collision_checker::NavCollisionCheckerConfigConfig &config, uint32_t level)
   {
     p_roll_out_step_time_ = config.roll_out_step_time;
     p_roll_out_steps_ = config.roll_out_steps;
