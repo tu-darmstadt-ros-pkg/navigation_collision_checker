@@ -33,22 +33,15 @@
 
 #include <tf/transform_listener.h>
 
-//#include <pcl/point_cloud.h>
-//#include <pcl/point_types.h>
-//#include <pcl/filters/crop_box.h>
-
-//#include <pcl_conversions/pcl_conversions.h>
-
-//#include <pcl_ros/transforms.h>
-
-//#include <filters/filter_chain.h>
-
 #include <moveit/robot_model_loader/robot_model_loader.h>
 #include <moveit/planning_scene/planning_scene.h>
 #include <moveit/robot_state/conversions.h>
 
 #include <octomap_msgs/Octomap.h>
 #include <geometry_msgs/Twist.h>
+
+#include <Eigen/Geometry>
+#include <eigen_conversions/eigen_msg.h>
 
 class NavCollisionChecker
 {
@@ -66,6 +59,8 @@ public:
     virtual_link_joint_states_.name.push_back("world_virtual_joint/rot_z");
     virtual_link_joint_states_.name.push_back("world_virtual_joint/rot_w");
 
+    virtual_link_joint_states_.position.resize(7);
+
     robot_model_loader::RobotModelLoader robot_model_loader("robot_description");
     robot_model_ = robot_model_loader.getModel();
 
@@ -77,6 +72,10 @@ public:
     robot_state_.reset(new robot_state::RobotState(robot_model_));
 
     planning_scene_.reset(new planning_scene::PlanningScene(robot_model_));
+
+    //Only check for collisions between robot and environment, not for self collisions
+    collision_detection::AllowedCollisionMatrix& acm = planning_scene_->getAllowedCollisionMatrixNonConst();
+    acm.setEntry(robot_model_->getLinkModelNames(), robot_model_->getLinkModelNames(), true);
 
     octomap_sub_ = nh_.subscribe("octomap", 2, &NavCollisionChecker::octomapCallback, this);
     robot_pose_sub_ = nh_.subscribe("robot_pose", 1, &NavCollisionChecker::robotPoseCallback, this);
@@ -141,20 +140,46 @@ public:
       return;
     }
 
-    isInCollision(*robot_pose_ptr_);
+    double step_time = 0.5;
+
+    Eigen::Affine3d test_pose;
+    tf::poseMsgToEigen(robot_pose_ptr_->pose, test_pose);
+
+    Eigen::Affine3d pose_change = this->integrateTwist(*msg, step_time);
+
+    for (size_t i = 0; i < 3; ++i){
+      test_pose = pose_change * test_pose;
+      bool in_collision = isInCollision(test_pose);
+
+      if (in_collision){
+        twist_out.linear.x = 0.0;
+        twist_out.linear.y = 0.0;
+        twist_out.linear.z = 0.0;
+
+        twist_out.angular.x = 0.0;
+        twist_out.angular.y = 0.0;
+        twist_out.angular.z = 0.0;
+
+        safe_twist_pub_.publish(twist_out);
+        return;
+      }
+    }
 
     safe_twist_pub_.publish(twist_out);
   }
 
-  bool isInCollision(const geometry_msgs::PoseStamped& pose)
+  bool isInCollision(const Eigen::Affine3d& pose)
   {
-    virtual_link_joint_states_.position[0] = pose.pose.position.x;
-    virtual_link_joint_states_.position[1] = pose.pose.position.y;
-    virtual_link_joint_states_.position[2] = pose.pose.position.z;
-    virtual_link_joint_states_.position[3] = pose.pose.orientation.x;
-    virtual_link_joint_states_.position[4] = pose.pose.orientation.y;
-    virtual_link_joint_states_.position[5] = pose.pose.orientation.z;
-    virtual_link_joint_states_.position[6] = pose.pose.orientation.w;
+    virtual_link_joint_states_.position[0] = pose.translation().x();
+    virtual_link_joint_states_.position[1] = pose.translation().y();
+    virtual_link_joint_states_.position[2] = pose.translation().z();
+
+    Eigen::Quaterniond quat(pose.rotation());
+
+    virtual_link_joint_states_.position[3] = quat.x();
+    virtual_link_joint_states_.position[4] = quat.y();
+    virtual_link_joint_states_.position[5] = quat.z();
+    virtual_link_joint_states_.position[6] = quat.w();
 
     moveit::core::jointStateToRobotState(virtual_link_joint_states_, *robot_state_);
 
@@ -165,9 +190,34 @@ public:
     collision_detection::CollisionResult collision_result;
 
     planning_scene_->checkCollision(collision_request, collision_result, *robot_state_, planning_scene_->getAllowedCollisionMatrix());
-    ROS_INFO_STREAM("Test 6: Current state is " << (collision_result.collision ? "in" : "not in") << " self collision");
+    ROS_INFO_STREAM("Current state is " << (collision_result.collision ? "in" : "not in") << " self collision. Distance: " << collision_result.distance);
   }
 
+  //For now, this assumes only angular rate in z and linear vel in x
+  Eigen::Affine3d integrateTwist(const geometry_msgs::Twist& msg, double step_time)
+  {
+    //This holds x,y and theta
+    Eigen::Vector3d int_vec(Eigen::Vector3d::Zero());
+
+    if (std::abs(msg.angular.z) < 0.0001){
+      int_vec.x() = msg.linear.x * step_time;
+    }else{
+
+      double dist_change = msg.linear.x * step_time;
+      double angle_change = msg.angular.z * step_time;
+
+      double arc_radius = dist_change / angle_change;
+
+      int_vec.x() = std::sin(angle_change) * arc_radius;
+      int_vec.y() = arc_radius - std::cos(angle_change) * arc_radius;
+      int_vec.z() = angle_change;
+    }
+
+    return Eigen::AngleAxisd(int_vec.z(), Eigen::Vector3d::UnitZ()) *
+                             Eigen::Translation3d(int_vec.x(),
+                                                  int_vec.y(),
+                                                  0.0);
+  }
 
 protected:
   ros::Subscriber octomap_sub_;

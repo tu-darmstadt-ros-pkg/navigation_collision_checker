@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<launch>
+  <node name="navigation_collision_checker_node"  pkg="navigation_collision_checker" type="navigation_collision_checker_node" respawn="true" output="screen">
+    <remap from="octomap" to="octomap_near_robot"/>
+  </node>
+</launch>

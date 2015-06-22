@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(navigation_collision_checker)
 
+set(CMAKE_BUILD_TYPE Debug)
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  cmake_modules
   eigen_conversions
   geometry_msgs
   moveit_core
@@ -12,8 +15,13 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   octomap_msgs
+  visualization_msgs
   tf
 )
+
+find_package(Eigen REQUIRED)
+include_directories(${EIGEN_INCLUDE_DIRS})
+add_definitions(${EIGEN_DEFINITIONS})
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
