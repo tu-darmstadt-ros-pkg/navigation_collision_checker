@@ -17,7 +17,11 @@ find_package(catkin REQUIRED COMPONENTS
   octomap_msgs
   visualization_msgs
   tf
+  dynamic_reconfigure
 )
+
+generate_dynamic_reconfigure_options(cfg/NavCollisionChecker.cfg)
+
 
 find_package(Eigen REQUIRED)
 include_directories(${EIGEN_INCLUDE_DIRS})
@@ -83,25 +87,6 @@ add_definitions(${EIGEN_DEFINITIONS})
 #   geometry_msgs#   sensor_msgs
 # )
 
-###################################
-## catkin specific configuration ##
-###################################
-## The catkin_package macro generates cmake config files for your package
-## Declare things to be passed to dependent projects
-## INCLUDE_DIRS: uncomment this if you package contains header files
-## LIBRARIES: libraries you create in this project that dependent projects also need
-## CATKIN_DEPENDS: catkin_packages dependent projects also need
-## DEPENDS: system dependencies of this project that dependent projects also need
-catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES navigation_collision_checker
-#  CATKIN_DEPENDS eigen_conversions geometry_msgs moveit_core roscpp sensor_msgs tf
-#  DEPENDS system_lib
-)
-
-###########
-## Build ##
-###########
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
@@ -113,6 +98,7 @@ include_directories(
 
 link_directories(${catkin_LIBRARY_DIRS})
 
+
 ## Declare a cpp library
 # add_library(navigation_collision_checker
 #   src/${PROJECT_NAME}/navigation_collision_checker.cpp
@@ -120,15 +106,30 @@ link_directories(${catkin_LIBRARY_DIRS})
 
 ## Declare a cpp executable
 add_executable(navigation_collision_checker_node src/navigation_collision_checker_node.cpp)
+add_dependencies(navigation_collision_checker_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
 
-## Add cmake target dependencies of the executable/library
-## as an example, message headers may need to be generated before nodes
-# add_dependencies(navigation_collision_checker_node navigation_collision_checker_generate_messages_cpp)
-
-## Specify libraries to link a library or executable target against
 target_link_libraries(navigation_collision_checker_node
    ${catkin_LIBRARIES}
 )
+
+catkin_package(
+INCLUDE_DIRS include
+LIBRARIES
+  cmake_modules
+  eigen_conversions
+  geometry_msgs
+  moveit_core
+  moveit_ros_planning
+  roscpp
+  sensor_msgs
+  octomap_msgs
+  visualization_msgs
+  tf
+  dynamic_reconfigure
+CATKIN_DEPENDS eigen_conversions geometry_msgs moveit_core roscpp sensor_msgs tf
+#DEPENDS system_lib
+)
+
 
 #############
 ## Install ##

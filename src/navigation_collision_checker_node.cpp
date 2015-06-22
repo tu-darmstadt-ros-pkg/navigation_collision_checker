@@ -43,6 +43,9 @@
 #include <Eigen/Geometry>
 #include <eigen_conversions/eigen_msg.h>
 
+#include <dynamic_reconfigure/server.h>
+#include <navigation_collision_checker/NavCollisionCheckerConfig.h>
+
 class NavCollisionChecker
 {
 public:
@@ -50,6 +53,8 @@ public:
   NavCollisionChecker()
   {
     ros::NodeHandle nh_;
+
+    dyn_rec_server_.setCallback(boost::bind(&NavCollisionChecker::dynRecParamCallback, this, _1, _2));
 
     virtual_link_joint_states_.name.push_back("world_virtual_joint/trans_x");
     virtual_link_joint_states_.name.push_back("world_virtual_joint/trans_y");
@@ -84,34 +89,6 @@ public:
 
     safe_twist_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel_safe", 1, false);
     marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
-
-    /*
-    prior_roll_angle_ = 0.0;
-
-    point_cloud2_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("cloud_out",10,false);
-    prox_warning_pub_ = nh_.advertise<std_msgs::Bool>("proximity_warning",10,false);
-
-    scan_sub_ = nh_.subscribe("cloud", 10, &NavCollisionChecker::cloudCallback, this);
-
-
-    crop_box_.reset(new pcl::CropBox<pcl::PointXYZ>());
-
-    ros::NodeHandle pnh_("~");
-
-    double x_max, x_min, y_max, y_min, z_max, z_min;
-    pnh_.param("x_max", x_max, 1.0);
-    pnh_.param("x_min", x_min, 1.0);
-    pnh_.param("y_max", y_max, 1.0);
-    pnh_.param("y_min", y_min, 1.0);
-    pnh_.param("z_max", z_max, 1.0);
-    pnh_.param("z_min", z_min, 1.0);
-
-    //filter_chain_.configure("scan_filter_chain", pnh_);
-
-    pnh_.param("target_frame", p_target_frame_, std::string("NO_TARGET_FRAME_SPECIFIED"));
-
-    */
-
   }
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
@@ -135,13 +112,18 @@ public:
   {
     geometry_msgs::Twist twist_out = *msg;
 
+    if (p_pass_through_){
+      safe_twist_pub_.publish(twist_out);
+      return;
+    }
+
     if (!robot_pose_ptr_.get()){
       ROS_WARN_THROTTLE(3.0, "Cannot get robot pose. Forwarding velocity command without safety check! This message is throttled.");
       safe_twist_pub_.publish(twist_out);
       return;
     }
 
-    double step_time = 0.75;
+    double step_time = p_roll_out_step_time_;
 
     Eigen::Affine3d test_pose;
     tf::poseMsgToEigen(robot_pose_ptr_->pose, test_pose);
@@ -150,7 +132,7 @@ public:
 
     marker_array_.markers.clear();
 
-    for (size_t i = 0; i < 3; ++i){
+    for (size_t i = 0; i < p_roll_out_steps_; ++i){
       test_pose = test_pose * pose_change;
       this->addMarker(test_pose, i);
       bool in_collision = isInCollision(test_pose);
@@ -246,8 +228,8 @@ public:
     marker.color.b = 1.0;
     marker.color.a = 1.0;
     marker.scale.x = 0.1;
-    marker.scale.y = 0.05;
-    marker.scale.z = 0.05;
+    marker.scale.y = 0.025;
+    marker.scale.z = 0.025;
     marker.id = count;
 
     marker.ns ="nav_coll_check";
@@ -257,6 +239,13 @@ public:
     tf::poseEigenToMsg(pose, marker.pose);
 
     marker_array_.markers.push_back(marker);
+  }
+
+  void dynRecParamCallback(navigation_collision_checker::NavCollisionCheckerConfig &config, uint32_t level)
+  {
+    p_roll_out_step_time_ = config.roll_out_step_time;
+    p_roll_out_steps_ = config.roll_out_steps;
+    p_pass_through_ = config.pass_through;
   }
 
 protected:
@@ -281,17 +270,11 @@ protected:
 
   visualization_msgs::MarkerArray marker_array_;
 
-  //bool p_use_high_fidelity_projection_;
-  //std::string p_target_frame_;
+  dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfig> dyn_rec_server_;
 
-  //double prior_roll_angle_;
-
-
-  //sensor_msgs::PointCloud2 cloud2_;
-
-  //std::vector<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ> > > cloud_agg_;
-
-  //boost::shared_ptr<pcl::CropBox<pcl::PointXYZ> > crop_box_;
+  double p_roll_out_step_time_;
+  int p_roll_out_steps_;
+  bool p_pass_through_;
 
 };
 
