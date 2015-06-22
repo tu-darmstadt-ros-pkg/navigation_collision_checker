@@ -92,6 +92,7 @@ add_definitions(${EIGEN_DEFINITIONS})
 ## Your package locations should be listed before other locations
 # include_directories(include)
 include_directories(
+  include
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -113,6 +114,7 @@ target_link_libraries(navigation_collision_checker_node
 
 catkin_package(
 INCLUDE_DIRS
+  include
 LIBRARIES
   cmake_modules
   eigen_conversions
