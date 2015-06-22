@@ -112,7 +112,7 @@ target_link_libraries(navigation_collision_checker_node
 )
 
 catkin_package(
-INCLUDE_DIRS include
+INCLUDE_DIRS
 LIBRARIES
   cmake_modules
   eigen_conversions
