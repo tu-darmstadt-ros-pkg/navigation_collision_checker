@@ -44,7 +44,7 @@
 #include <eigen_conversions/eigen_msg.h>
 
 #include <dynamic_reconfigure/server.h>
-#include <navigation_collision_checker/NavCollisionCheckerConfigConfig.h>
+#include <navigation_collision_checker/NavCollisionCheckerConfig.h>
 
 class NavCollisionChecker
 {
@@ -241,7 +241,7 @@ public:
     marker_array_.markers.push_back(marker);
   }
 
-  void dynRecParamCallback(navigation_collision_checker::NavCollisionCheckerConfigConfig &config, uint32_t level)
+  void dynRecParamCallback(navigation_collision_checker::NavCollisionCheckerConfig &config, uint32_t level)
   {
     p_roll_out_step_time_ = config.roll_out_step_time;
     p_roll_out_steps_ = config.roll_out_steps;
@@ -270,7 +270,7 @@ protected:
 
   visualization_msgs::MarkerArray marker_array_;
 
-  dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfigConfig> dyn_rec_server_;
+  dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfig> dyn_rec_server_;
 
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
