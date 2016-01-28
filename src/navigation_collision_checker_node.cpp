@@ -39,6 +39,7 @@
 
 #include <octomap_msgs/Octomap.h>
 #include <geometry_msgs/Twist.h>
+#include <moveit_msgs/DisplayRobotState.h>
 
 #include <Eigen/Geometry>
 #include <eigen_conversions/eigen_msg.h>
@@ -88,7 +89,10 @@ public:
     desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
 
     safe_twist_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel_safe", 1, false);
-    marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
+
+    ros::NodeHandle pnh("~");
+    marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
+    collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
   }
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
@@ -181,6 +185,13 @@ public:
     //ROS_INFO_STREAM("Current state is " << (collision_result.collision ? "in" : "not in") << " self collision. Distance: " << collision_result.distance);
 
     if (collision_result.collision){
+      if (collision_state_pub_.getNumSubscribers() > 0){
+        moveit_msgs::DisplayRobotState collision_robot_state;
+
+        moveit::core::robotStateToRobotStateMsg(*robot_state_, collision_robot_state.state);
+        collision_state_pub_.publish(collision_robot_state);
+      }
+
       collision_detection::CollisionResult::ContactMap& contacts = collision_result.contacts;
       ROS_INFO_THROTTLE(1.0, "Detected %d collisions. This message is throttled.", (int)contacts.size());
       return true;
@@ -256,6 +267,7 @@ protected:
 
   ros::Publisher safe_twist_pub_;
   ros::Publisher marker_pub_;
+  ros::Publisher collision_state_pub_;
 
   boost::shared_ptr<tf::TransformListener> tfl_;
   ros::Duration wait_duration_;
