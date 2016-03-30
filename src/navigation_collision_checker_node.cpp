@@ -47,6 +47,12 @@
 #include <dynamic_reconfigure/server.h>
 #include <navigation_collision_checker/NavCollisionCheckerConfig.h>
 
+#include <nav_msgs/OccupancyGrid.h>
+#include <grid_map_ros/grid_map_ros.hpp>
+#include <grid_map_proc/grid_map_polygon_tools.h>
+
+
+
 class NavCollisionChecker
 {
 public:
@@ -70,6 +76,8 @@ public:
     robot_model_loader::RobotModelLoader robot_model_loader("robot_description");
     robot_model_ = robot_model_loader.getModel();
 
+    grid_map_polygon_tools::setFootprintPoly(0.4, 0.3, this->footprint_poly_);
+
     if (!robot_model_.get()){
       ROS_ERROR("Couldn't load robot model, exiting!");
       exit(0);
@@ -88,6 +96,8 @@ public:
     joint_state_sub_ = nh_.subscribe("joint_states", 5, &NavCollisionChecker::jointStatesCallback, this);
     desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
 
+    traversability_map_sub_ = nh_.subscribe("/dynamic_map", 2, &NavCollisionChecker::traversabilityMapCallback, this);
+
     safe_twist_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel_safe", 1, false);
 
     ros::NodeHandle pnh("~");
@@ -97,6 +107,7 @@ public:
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
   {
+    // Octomap update typically takes around 5ms on a i7 running sim+onboard
     ros::WallTime start_octo_update_time = ros::WallTime::now();
     planning_scene_->processOctomapMsg(*msg);
     ROS_DEBUG("Octomap update took %f seconds", (ros::WallTime::now()-start_octo_update_time).toSec());
@@ -111,6 +122,15 @@ public:
   {
     moveit::core::jointStateToRobotState(*msg, *robot_state_);
   }
+
+  void traversabilityMapCallback(const nav_msgs::OccupancyGrid& msg)
+  {
+    // Update typically takes around 20ms on a i7 running sim+onboard
+    ros::WallTime start_trav_update_time = ros::WallTime::now();
+    grid_map::GridMapRosConverter::fromOccupancyGrid(msg, "occupancy", traversability_map_);
+    ROS_DEBUG("Traversability map update took %f seconds", (ros::WallTime::now()-start_trav_update_time).toSec());
+  }
+
 
   void twistCallback(const geometry_msgs::TwistConstPtr msg)
   {
@@ -139,7 +159,9 @@ public:
     for (size_t i = 0; i < p_roll_out_steps_; ++i){
       test_pose = test_pose * pose_change;
       this->addMarker(test_pose, i);
-      bool in_collision = isInCollision(test_pose);
+      //bool in_collision = isInCollisionOcto(test_pose);
+      bool in_collision = isInCollisionTraversabilityMap(test_pose);
+
 
       if (in_collision){
         twist_out.linear.x = 0.0;
@@ -160,7 +182,7 @@ public:
     safe_twist_pub_.publish(twist_out);
   }
 
-  bool isInCollision(const Eigen::Affine3d& pose)
+  bool isInCollisionOcto(const Eigen::Affine3d& pose)
   {
     virtual_link_joint_states_.position[0] = pose.translation().x();
     virtual_link_joint_states_.position[1] = pose.translation().y();
@@ -195,6 +217,25 @@ public:
       collision_detection::CollisionResult::ContactMap& contacts = collision_result.contacts;
       ROS_INFO_THROTTLE(1.0, "Detected %d collisions. This message is throttled.", (int)contacts.size());
       return true;
+    }
+
+    return false;
+  }
+
+  bool isInCollisionTraversabilityMap(const Eigen::Affine3d& pose)
+  {
+    grid_map::Polygon pose_footprint = grid_map_polygon_tools::getTransformedPoly(footprint_poly_, pose);
+
+    grid_map::Matrix& traversability_data = traversability_map_["occupancy"];
+
+    for (grid_map::PolygonIterator poly_iterator(traversability_map_, pose_footprint); !poly_iterator.isPastEnd(); ++poly_iterator) {
+      const grid_map::Index index(*poly_iterator);
+
+      //std::cout << "idx: " << index(0) << " " << index(1) << "\n";
+
+      if (traversability_data(index(0), index(1)) > 50.0){
+        return true;
+      }
     }
 
     return false;
@@ -265,6 +306,8 @@ protected:
   ros::Subscriber desired_twist_sub_;
   ros::Subscriber joint_state_sub_;
 
+  ros::Subscriber traversability_map_sub_;
+
   ros::Publisher safe_twist_pub_;
   ros::Publisher marker_pub_;
   ros::Publisher collision_state_pub_;
@@ -279,6 +322,9 @@ protected:
 
   geometry_msgs::PoseStampedConstPtr robot_pose_ptr_;
   sensor_msgs::JointState virtual_link_joint_states_;
+
+  grid_map::GridMap traversability_map_;
+  grid_map::Polygon footprint_poly_;
 
   visualization_msgs::MarkerArray marker_array_;
 
