@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   grid_map_msgs
   grid_map_ros
   grid_map_proc
+  vigir_worldmodel_server
 )
 
 generate_dynamic_reconfigure_options(cfg/NavCollisionChecker.cfg)

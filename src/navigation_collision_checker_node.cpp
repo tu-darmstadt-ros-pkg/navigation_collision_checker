@@ -52,6 +52,8 @@
 #include <grid_map_proc/grid_map_polygon_tools.h>
 
 
+#include <vigir_worldmodel_server/point_cloud/point_cloud_aggregator.h>
+
 
 class NavCollisionChecker
 {
@@ -99,15 +101,8 @@ public:
 
     //desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
 
-    ros::SubscribeOptions so =
-      ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_raw", 1,
-          boost::bind(&NavCollisionChecker::twistCallback, this, _1),
-          ros::VoidPtr(), &queue_);
 
-    desired_twist_sub_ = nh_.subscribe(so);
 
-    this->callback_queue_thread_ =
-      boost::thread(boost::bind(&NavCollisionChecker::QueueThread, this));
 
 
     traversability_map_sub_ = nh_.subscribe("/dynamic_map", 2, &NavCollisionChecker::traversabilityMapCallback, this);
@@ -117,8 +112,27 @@ public:
     ros::NodeHandle pnh("~");
     marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
     collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
+    debug_cloud_pub_ = pnh.advertise<sensor_msgs::PointCloud2>("fast_coll_debug_cloud", 1, false);
+
 
     check_timer_ = pnh.createTimer(ros::Duration(0.05), &NavCollisionChecker::checkTimerCallback, this, false);
+
+
+    tfl_.reset(new tf::TransformListener());
+
+    cloud_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500));
+
+    cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 5, &NavCollisionChecker::filteredCloudCallback, this);
+
+    ros::SubscribeOptions so =
+      ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_raw", 1,
+          boost::bind(&NavCollisionChecker::twistCallback, this, _1),
+          ros::VoidPtr(), &queue_);
+
+    desired_twist_sub_ = nh_.subscribe(so);
+
+    this->callback_queue_thread_ =
+      boost::thread(boost::bind(&NavCollisionChecker::QueueThread, this));
   }
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
@@ -127,6 +141,15 @@ public:
     ros::WallTime start_octo_update_time = ros::WallTime::now();
     planning_scene_->processOctomapMsg(*msg);
     ROS_DEBUG("Octomap update took %f seconds", (ros::WallTime::now()-start_octo_update_time).toSec());
+  }
+
+  void filteredCloudCallback(const sensor_msgs::PointCloud2& msg)
+  {
+    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > pc_ (new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::fromROSMsg(msg, *pc_);
+    cloud_aggregator_->addCloud(pc_);
+    //ROS_INFO("cloud agg size: %d", (int)cloud_aggregator_->size());
+
   }
 
   void robotPoseCallback(const geometry_msgs::PoseStampedConstPtr msg)
@@ -222,6 +245,14 @@ public:
 
     marker_array_.markers.clear();
 
+    if (this->isInCollisionFilteredCloud(latest_twist_cpy)){
+      {
+        boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+        estimated_state_in_collision_ = true;
+      }
+      return;
+    }
+
     for (size_t i = 0; i < p_roll_out_steps_; ++i){
       test_pose = test_pose * pose_change;
       this->addMarker(test_pose, i);
@@ -294,6 +325,11 @@ public:
 
   bool isInCollisionTraversabilityMap(const Eigen::Affine3d& pose)
   {
+    if (!traversability_map_.exists("occupancy")){
+      ROS_WARN("Occupancy layer of traversability map not (yet) available, skipping check.");
+      return false;
+    }
+
     const grid_map::Polygon pose_footprint = grid_map_polygon_tools::getTransformedPoly(footprint_poly_, pose);
 
     grid_map::Matrix& traversability_data = traversability_map_["occupancy"];
@@ -307,6 +343,54 @@ public:
         return true;
       }
     }
+    return false;
+  }
+
+
+  bool isInCollisionFilteredCloud(const geometry_msgs::Twist& twist)
+  {
+    geometry_msgs::Point point_min;
+    geometry_msgs::Point point_max;
+
+    point_min.x =  0.4;
+    point_min.y = -0.3;
+    point_min.z =  0.1;
+    point_max.x =  point_min.x + 0.5;
+    point_max.y = -point_min.y;
+    point_max.z =  point_min.z + 0.6;
+
+    if (twist.linear.x > 0){
+      //Already set above
+    }else if (twist.linear.x < 0){
+      point_min.x = -point_min.x;
+      point_max.x = -point_max.x;
+    }else{
+      //No forward speed, return immediately
+      return false;
+    }
+
+
+
+    boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_base_link (new pcl::PointCloud<pcl::PointXYZI>());
+
+    int p_desired_aggregation_size_ = 20;
+    cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_base_link, "base_link", point_min, point_max, 0.0, p_desired_aggregation_size_);
+
+    // Publish cloud for debugging if requested
+    if (debug_cloud_pub_.getNumSubscribers() > 0){
+      sensor_msgs::PointCloud2 cloud_out;
+      pcl::toROSMsg(*cloud_base_link, cloud_out);
+
+      cloud_out.header.stamp = ros::Time::now();
+      cloud_out.header.frame_id = "base_link";
+
+      debug_cloud_pub_.publish (cloud_out);
+    }
+
+    if (cloud_base_link->size() > 5){
+      return true;
+    }
+
     return false;
   }
 
@@ -381,8 +465,14 @@ protected:
   ros::Publisher marker_pub_;
   ros::Publisher collision_state_pub_;
 
+  ros::Publisher debug_cloud_pub_;
+
   boost::shared_ptr<tf::TransformListener> tfl_;
   ros::Duration wait_duration_;
+
+  boost::shared_ptr<vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI> > cloud_aggregator_;
+
+  ros::Subscriber cloud_sub_;
 
   ros::Timer check_timer_;
 
