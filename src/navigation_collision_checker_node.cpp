@@ -122,7 +122,7 @@ public:
 
     cloud_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500));
 
-    cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 5, &NavCollisionChecker::filteredCloudCallback, this);
+    cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 30, &NavCollisionChecker::filteredCloudCallback, this);
 
     ros::SubscribeOptions so =
       ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_raw", 1,
@@ -352,18 +352,19 @@ public:
     geometry_msgs::Point point_min;
     geometry_msgs::Point point_max;
 
-    point_min.x =  0.4;
-    point_min.y = -0.3;
-    point_min.z =  0.1;
-    point_max.x =  point_min.x + 0.5;
-    point_max.y = -point_min.y;
-    point_max.z =  point_min.z + 0.6;
 
-    if (twist.linear.x > 0){
-      //Already set above
-    }else if (twist.linear.x < 0){
-      point_min.x = -point_min.x;
-      point_max.x = -point_max.x;
+    point_min.y = -p_reactive_lidar_avoid_y_side;
+    point_min.z =  p_reactive_lidar_avoid_z_min;
+
+    point_max.y = -point_min.y;
+    point_max.z =  point_min.z + p_reactive_lidar_avoid_z_range;
+    
+    if (twist.linear.x > 0.0){
+      point_min.x =  p_reactive_lidar_avoid_x_min;
+      point_max.x =  p_reactive_lidar_avoid_x_min + p_reactive_lidar_avoid_x_range;
+    }else if (twist.linear.x < 0.0){
+      point_max.x = -p_reactive_lidar_avoid_x_min;
+      point_min.x = -p_reactive_lidar_avoid_x_min - p_reactive_lidar_avoid_x_range;
     }else{
       //No forward speed, return immediately
       return false;
@@ -373,8 +374,9 @@ public:
 
     boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_base_link (new pcl::PointCloud<pcl::PointXYZI>());
 
-    int p_desired_aggregation_size_ = 20;
-    cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_base_link, "base_link", point_min, point_max, 0.0, p_desired_aggregation_size_);
+    cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_base_link, "base_link", point_min, point_max, 0.0, p_reactive_aggregation_size);
+
+    //cloud_aggregator_->getAggregateCloud(cloud_base_link, "base_link", p_reactive_aggregation_size);
 
     // Publish cloud for debugging if requested
     if (debug_cloud_pub_.getNumSubscribers() > 0){
@@ -387,7 +389,7 @@ public:
       debug_cloud_pub_.publish (cloud_out);
     }
 
-    if (cloud_base_link->size() > 5){
+    if (cloud_base_link->size() > p_reactive_min_number_for_obstacles){
       return true;
     }
 
@@ -450,6 +452,23 @@ public:
   {
     p_roll_out_step_time_ = config.roll_out_step_time;
     p_roll_out_steps_ = config.roll_out_steps;
+
+    p_reactive_lidar_avoid_x_min    = config.reactive_lidar_avoid_x_min;
+    p_reactive_lidar_avoid_x_range  = config.reactive_lidar_avoid_x_range;
+    p_reactive_lidar_avoid_z_min    = config.reactive_lidar_avoid_z_min;
+    p_reactive_lidar_avoid_z_range  = config.reactive_lidar_avoid_z_range;
+    p_reactive_lidar_avoid_y_side   = config.reactive_lidar_avoid_y_side;
+
+    p_reactive_aggregation_size = config.reactive_aggregation_size;
+    p_reactive_min_number_for_obstacles = config.reactive_min_number_for_obstacles;
+
+    ROS_INFO("Set ranges x: %f x_r: %f, z: %f z_r: %f y: %f",
+             p_reactive_lidar_avoid_x_min,
+             p_reactive_lidar_avoid_x_range,
+             p_reactive_lidar_avoid_z_min,
+             p_reactive_lidar_avoid_z_range,
+             p_reactive_lidar_avoid_y_side);
+
     p_pass_through_ = config.pass_through;
   }
 
@@ -496,6 +515,14 @@ protected:
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
   bool p_pass_through_;
+
+  double p_reactive_lidar_avoid_x_min;
+  double p_reactive_lidar_avoid_x_range;
+  double p_reactive_lidar_avoid_z_min;
+  double p_reactive_lidar_avoid_z_range;
+  double p_reactive_lidar_avoid_y_side;
+  int p_reactive_aggregation_size;
+  int p_reactive_min_number_for_obstacles;
 
   bool estimated_state_in_collision_;
 
