@@ -58,6 +58,7 @@ class NavCollisionChecker
 public:
 
   NavCollisionChecker()
+    : estimated_state_in_collision_(false)
   {
     ros::NodeHandle nh_;
 
@@ -94,7 +95,20 @@ public:
     octomap_sub_ = nh_.subscribe("octomap", 2, &NavCollisionChecker::octomapCallback, this);
     robot_pose_sub_ = nh_.subscribe("robot_pose", 1, &NavCollisionChecker::robotPoseCallback, this);
     joint_state_sub_ = nh_.subscribe("joint_states", 5, &NavCollisionChecker::jointStatesCallback, this);
-    desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
+
+
+    //desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
+
+    ros::SubscribeOptions so =
+      ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_raw", 1,
+          boost::bind(&NavCollisionChecker::twistCallback, this, _1),
+          ros::VoidPtr(), &queue_);
+
+    desired_twist_sub_ = nh_.subscribe(so);
+
+    this->callback_queue_thread_ =
+      boost::thread(boost::bind(&NavCollisionChecker::QueueThread, this));
+
 
     traversability_map_sub_ = nh_.subscribe("/dynamic_map", 2, &NavCollisionChecker::traversabilityMapCallback, this);
 
@@ -103,6 +117,8 @@ public:
     ros::NodeHandle pnh("~");
     marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
     collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
+
+    check_timer_ = pnh.createTimer(ros::Duration(1.0), &NavCollisionChecker::checkTimerCallback, this, false);
   }
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
@@ -131,20 +147,70 @@ public:
     ROS_DEBUG("Traversability map update took %f seconds", (ros::WallTime::now()-start_trav_update_time).toSec());
   }
 
+  void QueueThread() {
+      static const double timeout = 0.01;
+
+      while (ros::ok()) {
+        queue_.callAvailable(ros::WallDuration(timeout));
+      }
+    }
 
   void twistCallback(const geometry_msgs::TwistConstPtr msg)
   {
-    geometry_msgs::Twist twist_out = *msg;
+    bool in_collision = false;
+
+    {
+      boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+      in_collision = estimated_state_in_collision_;
+      latest_twist_ = msg;
+    }
+
 
     if (p_pass_through_){
+      geometry_msgs::Twist twist_out = *msg;
       safe_twist_pub_.publish(twist_out);
       return;
     }
 
-    if (!robot_pose_ptr_.get()){
-      ROS_WARN_THROTTLE(3.0, "Cannot get robot pose. Forwarding velocity command without safety check! This message is throttled.");
+
+    if (in_collision){
+      geometry_msgs::Twist twist_out;
+      twist_out.linear.x = 0.0;
+      twist_out.linear.y = 0.0;
+      twist_out.linear.z = 0.0;
+
+      twist_out.angular.x = 0.0;
+      twist_out.angular.y = 0.0;
+      twist_out.angular.z = 0.0;
+
       safe_twist_pub_.publish(twist_out);
+
+    }else{
+      geometry_msgs::Twist twist_out = *msg;
+      safe_twist_pub_.publish(twist_out);
+    }
+
+
+  }
+
+
+  void checkTimerCallback(const ros::TimerEvent& event)
+  {
+
+    if (!robot_pose_ptr_.get()){
+      ROS_WARN_THROTTLE(3.0, "Cannot get robot pose. Cannot compute collision check. This message is throttled.");
       return;
+    }
+
+    geometry_msgs::Twist latest_twist_cpy;
+
+    {
+      boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+      if (!latest_twist_.get()){
+        ROS_WARN_THROTTLE(3.0, "Cannot get latest twist msg. Cannot compute collision check. This message is throttled.");
+        return;
+      }
+      latest_twist_cpy = *latest_twist_;
     }
 
     double step_time = p_roll_out_step_time_;
@@ -152,7 +218,7 @@ public:
     Eigen::Affine3d test_pose;
     tf::poseMsgToEigen(robot_pose_ptr_->pose, test_pose);
 
-    Eigen::Affine3d pose_change = this->integrateTwist(*msg, step_time);
+    Eigen::Affine3d pose_change (this->integrateTwist(latest_twist_cpy, step_time));
 
     marker_array_.markers.clear();
 
@@ -164,22 +230,26 @@ public:
 
 
       if (in_collision){
-        twist_out.linear.x = 0.0;
-        twist_out.linear.y = 0.0;
-        twist_out.linear.z = 0.0;
 
-        twist_out.angular.x = 0.0;
-        twist_out.angular.y = 0.0;
-        twist_out.angular.z = 0.0;
-
-        safe_twist_pub_.publish(twist_out);
         marker_pub_.publish(marker_array_);
+
+        {
+          boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+          estimated_state_in_collision_ = true;
+        }
+
         return;
       }
     }
 
+    {
+      boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+      estimated_state_in_collision_ = false;
+    }
+
+
     marker_pub_.publish(marker_array_);
-    safe_twist_pub_.publish(twist_out);
+    //safe_twist_pub_.publish(twist_out);
   }
 
   bool isInCollisionOcto(const Eigen::Affine3d& pose)
@@ -224,7 +294,7 @@ public:
 
   bool isInCollisionTraversabilityMap(const Eigen::Affine3d& pose)
   {
-    grid_map::Polygon pose_footprint = grid_map_polygon_tools::getTransformedPoly(footprint_poly_, pose);
+    const grid_map::Polygon pose_footprint = grid_map_polygon_tools::getTransformedPoly(footprint_poly_, pose);
 
     grid_map::Matrix& traversability_data = traversability_map_["occupancy"];
 
@@ -237,7 +307,6 @@ public:
         return true;
       }
     }
-
     return false;
   }
 
@@ -315,6 +384,10 @@ protected:
   boost::shared_ptr<tf::TransformListener> tfl_;
   ros::Duration wait_duration_;
 
+  ros::Timer check_timer_;
+
+  geometry_msgs::TwistConstPtr latest_twist_;
+
 
   robot_model::RobotModelPtr robot_model_;
   robot_state::RobotStatePtr robot_state_;
@@ -334,6 +407,12 @@ protected:
   int p_roll_out_steps_;
   bool p_pass_through_;
 
+  bool estimated_state_in_collision_;
+
+  // Custom Callback Queue
+  ros::CallbackQueue queue_;
+  boost::thread callback_queue_thread_;
+  boost::mutex collision_state_lock_;
 };
 
 int main(int argc, char** argv)
