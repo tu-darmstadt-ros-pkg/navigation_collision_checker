@@ -245,20 +245,25 @@ public:
 
     marker_array_.markers.clear();
 
-    if (this->isInCollisionFilteredCloud(latest_twist_cpy)){
-      {
-        boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
-        estimated_state_in_collision_ = true;
+    if (p_use_filtered_cloud_collision_avoidance){
+      if (this->isInCollisionFilteredCloud(latest_twist_cpy)){
+        {
+          boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+          estimated_state_in_collision_ = true;
+        }
+        return;
       }
-      return;
     }
 
     for (size_t i = 0; i < p_roll_out_steps_; ++i){
       test_pose = test_pose * pose_change;
       this->addMarker(test_pose, i);
       //bool in_collision = isInCollisionOcto(test_pose);
-      bool in_collision = isInCollisionTraversabilityMap(test_pose);
+      bool in_collision = false;
 
+      if (p_use_traversability_map_collision_avoidance){
+        in_collision = isInCollisionTraversabilityMap(test_pose);
+      }
 
       if (in_collision){
 
@@ -462,6 +467,9 @@ public:
     p_reactive_aggregation_size = config.reactive_aggregation_size;
     p_reactive_min_number_for_obstacles = config.reactive_min_number_for_obstacles;
 
+    p_use_traversability_map_collision_avoidance = config.use_traversability_map_collision_avoidance;
+    p_use_filtered_cloud_collision_avoidance = config.use_filtered_cloud_collision_avoidance;
+
     ROS_INFO("Set ranges x: %f x_r: %f, z: %f z_r: %f y: %f",
              p_reactive_lidar_avoid_x_min,
              p_reactive_lidar_avoid_x_range,
@@ -521,8 +529,13 @@ protected:
   double p_reactive_lidar_avoid_z_min;
   double p_reactive_lidar_avoid_z_range;
   double p_reactive_lidar_avoid_y_side;
+
   int p_reactive_aggregation_size;
   int p_reactive_min_number_for_obstacles;
+
+  bool p_use_traversability_map_collision_avoidance;
+  bool p_use_filtered_cloud_collision_avoidance;
+
 
   bool estimated_state_in_collision_;
 
