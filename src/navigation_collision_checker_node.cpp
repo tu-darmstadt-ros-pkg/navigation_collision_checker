@@ -118,7 +118,7 @@ public:
     marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
     collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
 
-    check_timer_ = pnh.createTimer(ros::Duration(1.0), &NavCollisionChecker::checkTimerCallback, this, false);
+    check_timer_ = pnh.createTimer(ros::Duration(0.05), &NavCollisionChecker::checkTimerCallback, this, false);
   }
 
   void octomapCallback(const octomap_msgs::OctomapConstPtr msg)
