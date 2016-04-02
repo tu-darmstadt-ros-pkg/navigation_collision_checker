@@ -48,6 +48,7 @@
 
 #include <nav_msgs/Path.h>
 #include <hector_worldmodel_msgs/AddObject.h>
+#include <hector_worldmodel_msgs/PosePercept.h>
 
 class PathCollisionChecker
 {
@@ -80,6 +81,7 @@ public:
 
 
     add_object_client_ = pnh.serviceClient<hector_worldmodel_msgs::AddObject>("/worldmodel/add_object", false);
+    pose_percept_publisher_ = pnh.advertise<hector_worldmodel_msgs::PosePercept>("/worldmodel/pose_percept", 5, false);
   }
 
 
@@ -135,6 +137,7 @@ public:
 
     }
 
+    /*
     hector_worldmodel_msgs::AddObject add_obj_srv;
 
     add_obj_srv.request.object.header.frame_id = "world";
@@ -151,6 +154,17 @@ public:
     }else{
       ROS_ERROR("Failed to add collision object!");
     }
+    */
+
+    hector_worldmodel_msgs::PosePercept pose_percept;
+
+    pose_percept.header.frame_id = "world";
+    pose_percept.header.stamp = ros::Time::now();
+    pose_percept.info.class_id = "obstacle";
+    pose_percept.info.object_support = 1.0;
+    pose_percept.pose = obstacle_pose;
+
+    pose_percept_publisher_.publish(pose_percept);
 
   }
 
@@ -209,7 +223,9 @@ protected:
 
   ros::Subscriber pose_sub_;
 
+  //Worldmodel interface
   ros::ServiceClient add_object_client_;
+  ros::Publisher pose_percept_publisher_;
 
   //boost::shared_ptr<tf::TransformListener> tfl_;
   
