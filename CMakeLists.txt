@@ -20,9 +20,10 @@ find_package(catkin REQUIRED COMPONENTS
   grid_map_ros
   grid_map_proc
   vigir_worldmodel_server
+  hector_worldmodel_msgs
 )
 
-generate_dynamic_reconfigure_options(cfg/NavCollisionChecker.cfg)
+generate_dynamic_reconfigure_options(cfg/NavCollisionChecker.cfg cfg/PathCollisionChecker.cfg)
 
 find_package(Eigen REQUIRED)
 include_directories(${EIGEN_INCLUDE_DIRS})
@@ -42,3 +43,6 @@ target_link_libraries(navigation_collision_checker_node ${catkin_LIBRARIES})
 add_dependencies(navigation_collision_checker_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
 
 
+add_executable(path_collision_checker_node src/path_collision_checker_node.cpp)
+target_link_libraries(path_collision_checker_node ${catkin_LIBRARIES})
+add_dependencies(path_collision_checker_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
