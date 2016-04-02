@@ -122,6 +122,8 @@ public:
                                               robot_elevation,
                                               elevation_threshold,
                                               obstacle_pose.pose,
+                                              p_path_min_travel_dist_,
+                                              p_path_max_travel_dist_,
                                               "elevation");
 
     ROS_INFO("Collision checking took %f seconds", (ros::WallTime::now() - start).toSec());
@@ -201,6 +203,9 @@ public:
     p_pose_height_offset_      = config.pose_height_offset;
 
     grid_map_polygon_tools::setFootprintPoly(config.footprint_x, config.footprint_y, this->footprint_poly_);
+
+    p_path_min_travel_dist_ = config.path_min_travel_dist;
+    p_path_max_travel_dist_ = config.path_max_travel_dist;
   }
 
 protected:
@@ -252,7 +257,8 @@ protected:
   double p_pose_height_offset_;
   double p_footprint_x;
   double p_footprint_y;
-
+  double p_path_min_travel_dist_;
+  double p_path_max_travel_dist_;
 };
 
 int main(int argc, char** argv)
