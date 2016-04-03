@@ -124,6 +124,7 @@ public:
                                               obstacle_pose.pose,
                                               p_path_min_travel_dist_,
                                               p_path_max_travel_dist_,
+                                              0.3,
                                               "elevation");
 
     ROS_INFO("Collision checking took %f seconds", (ros::WallTime::now() - start).toSec());
