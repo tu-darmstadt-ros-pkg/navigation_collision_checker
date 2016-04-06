@@ -105,42 +105,44 @@ public:
 
   void pathCallback(const nav_msgs::Path& path)
   {
-    ros::WallTime start = ros::WallTime::now();
+    
+    if (p_path_check_enabled_){
+      ros::WallTime start = ros::WallTime::now();
 
-    if (!robot_pose_.get()){
-      ROS_WARN("Robot pose not available, skipping path checking.");
-      return;
-    }
+      if (!robot_pose_.get()){
+        ROS_WARN("Robot pose not available, skipping path checking.");
+        return;
+      }
 
-    geometry_msgs::PoseWithCovariance obstacle_pose;
-    double robot_elevation = robot_pose_->pose.position.z + p_pose_height_offset_;
-    double elevation_threshold = p_obstacle_diff_threshold_;
+      geometry_msgs::PoseWithCovariance obstacle_pose;
+      double robot_elevation = robot_pose_->pose.position.z + p_pose_height_offset_;
+      double elevation_threshold = p_obstacle_diff_threshold_;
 
-    bool is_in_collision = grid_map_polygon_tools::isPathInCollisionElevation(footprint_poly_,
-                                              local_elevation_map_,
-                                              path,
-                                              robot_elevation,
-                                              elevation_threshold,
-                                              obstacle_pose.pose,
-                                              p_path_min_travel_dist_,
-                                              p_path_max_travel_dist_,
-                                              0.3,
-                                              "elevation");
+      bool is_in_collision = grid_map_polygon_tools::isPathInCollisionElevation(footprint_poly_,
+                                                                                local_elevation_map_,
+                                                                                path,
+                                                                                robot_elevation,
+                                                                                elevation_threshold,
+                                                                                obstacle_pose.pose,
+                                                                                p_path_min_travel_dist_,
+                                                                                p_path_max_travel_dist_,
+                                                                                0.3,
+                                                                                "elevation");
 
-    ROS_INFO("Collision checking took %f seconds", (ros::WallTime::now() - start).toSec());
+      ROS_INFO("Collision checking took %f seconds", (ros::WallTime::now() - start).toSec());
 
-    if (!is_in_collision){
-      ROS_INFO("Path not in collision.");
-      return;
-    }
+      if (!is_in_collision){
+        ROS_INFO("Path not in collision.");
+        return;
+      }
 
-    if (debug_pose_.getNumSubscribers() > 0){
-      geometry_msgs::PoseStamped pose_debug;
-      pose_debug.pose = obstacle_pose.pose;
+      if (debug_pose_.getNumSubscribers() > 0){
+        geometry_msgs::PoseStamped pose_debug;
+        pose_debug.pose = obstacle_pose.pose;
 
-    }
+      }
 
-    /*
+      /*
     hector_worldmodel_msgs::AddObject add_obj_srv;
 
     add_obj_srv.request.object.header.frame_id = "world";
@@ -159,15 +161,16 @@ public:
     }
     */
 
-    hector_worldmodel_msgs::PosePercept pose_percept;
+      hector_worldmodel_msgs::PosePercept pose_percept;
 
-    pose_percept.header.frame_id = "world";
-    pose_percept.header.stamp = ros::Time::now();
-    pose_percept.info.class_id = "obstacle";
-    pose_percept.info.object_support = 1.0;
-    pose_percept.pose = obstacle_pose;
+      pose_percept.header.frame_id = "world";
+      pose_percept.header.stamp = ros::Time::now();
+      pose_percept.info.class_id = "obstacle";
+      pose_percept.info.object_support = 1.0;
+      pose_percept.pose = obstacle_pose;
 
-    pose_percept_publisher_.publish(pose_percept);
+      pose_percept_publisher_.publish(pose_percept);
+    }
 
   }
 
@@ -207,6 +210,8 @@ public:
 
     p_path_min_travel_dist_ = config.path_min_travel_dist;
     p_path_max_travel_dist_ = config.path_max_travel_dist;
+    
+    p_path_check_enabled_ = config.path_check_enabled;
   }
 
 protected:
@@ -260,6 +265,7 @@ protected:
   double p_footprint_y;
   double p_path_min_travel_dist_;
   double p_path_max_travel_dist_;
+  bool p_path_check_enabled_;
 };
 
 int main(int argc, char** argv)
