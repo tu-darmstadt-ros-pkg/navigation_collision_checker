@@ -134,12 +134,14 @@ public:
       if (!is_in_collision){
         ROS_INFO("Path not in collision.");
         return;
+      }else{
+        ROS_INFO("Path in collision");
       }
 
       if (debug_pose_.getNumSubscribers() > 0){
         geometry_msgs::PoseStamped pose_debug;
         pose_debug.pose = obstacle_pose.pose;
-
+        debug_pose_.publish(pose_debug);
       }
 
       /*
