@@ -71,7 +71,7 @@ public:
     ros::NodeHandle pnh("~");
     marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("path_collision_check_markers", 1,false);
 
-    debug_pose_ = pnh.advertise<geometry_msgs::PoseStamped>("debug_pose",5, false);
+    debug_pose_ = pnh.advertise<geometry_msgs::PoseStamped>("/collision_pose",5, false);
 
     pose_sub_ = pnh.subscribe("/robot_pose", 1, &PathCollisionChecker::poseCallback, this);
 
@@ -160,16 +160,18 @@ public:
       ROS_ERROR("Failed to add collision object!");
     }
     */
+      if (p_publish_percept_){
 
-      hector_worldmodel_msgs::PosePercept pose_percept;
+        hector_worldmodel_msgs::PosePercept pose_percept;
 
-      pose_percept.header.frame_id = "world";
-      pose_percept.header.stamp = ros::Time::now();
-      pose_percept.info.class_id = "obstacle";
-      pose_percept.info.object_support = 1.0;
-      pose_percept.pose = obstacle_pose;
+        pose_percept.header.frame_id = "world";
+        pose_percept.header.stamp = ros::Time::now();
+        pose_percept.info.class_id = "obstacle";
+        pose_percept.info.object_support = 1.0;
+        pose_percept.pose = obstacle_pose;
 
-      pose_percept_publisher_.publish(pose_percept);
+        pose_percept_publisher_.publish(pose_percept);
+      }
     }
 
   }
@@ -211,7 +213,9 @@ public:
     p_path_min_travel_dist_ = config.path_min_travel_dist;
     p_path_max_travel_dist_ = config.path_max_travel_dist;
     
+    p_publish_percept_ = config.publish_percept;
     p_path_check_enabled_ = config.path_check_enabled;
+
   }
 
 protected:
@@ -265,6 +269,7 @@ protected:
   double p_footprint_y;
   double p_path_min_travel_dist_;
   double p_path_max_travel_dist_;
+  bool p_publish_percept_;
   bool p_path_check_enabled_;
 };
 
