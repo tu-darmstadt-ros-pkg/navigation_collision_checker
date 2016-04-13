@@ -30,6 +30,7 @@
 
 #include <laser_geometry/laser_geometry.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Char.h>
 
 #include <tf/transform_listener.h>
 
@@ -112,7 +113,9 @@ public:
     ros::NodeHandle pnh("~");
     marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
     collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
+    cliff_state_pub_ = pnh.advertise<std_msgs::Char>("cliff_state", 1, false);
     debug_cloud_pub_ = pnh.advertise<sensor_msgs::PointCloud2>("fast_coll_debug_cloud", 1, false);
+    debug_cliff_pub_ = pnh.advertise<sensor_msgs::PointCloud2>("debug_cliff", 1, false);
 
 
     check_timer_ = pnh.createTimer(ros::Duration(0.05), &NavCollisionChecker::checkTimerCallback, this, false);
@@ -121,6 +124,7 @@ public:
     tfl_.reset(new tf::TransformListener());
 
     cloud_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500));
+    cliff_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_));
 
     cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 30, &NavCollisionChecker::filteredCloudCallback, this);
 
@@ -148,6 +152,7 @@ public:
     boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > pc_ (new pcl::PointCloud<pcl::PointXYZI>());
     pcl::fromROSMsg(msg, *pc_);
     cloud_aggregator_->addCloud(pc_);
+    cliff_aggregator_->addCloud(pc_);
     //ROS_INFO("cloud agg size: %d", (int)cloud_aggregator_->size());
 
   }
@@ -286,6 +291,85 @@ public:
 
     marker_pub_.publish(marker_array_);
     //safe_twist_pub_.publish(twist_out);
+
+    //Cliff detector start
+    cliff_state_pub_.publish (this->getCliffState());
+    //Cliff detector finish
+  }
+
+  std_msgs::Char getCliffState(void){
+      std_msgs::Char cliff_state;
+
+      geometry_msgs::Point front_point_min;
+      geometry_msgs::Point front_point_max;
+      geometry_msgs::Point rear_point_min;
+      geometry_msgs::Point rear_point_max;
+
+
+      front_point_min.x =  0.40;
+      front_point_max.x =  0.50;
+      front_point_min.y = -0.15;
+      front_point_max.y =  0.15;
+      front_point_max.z =  0.10;
+      front_point_min.z = -0.50;
+
+      rear_point_min.x = -0.50;
+      rear_point_max.x = -0.40;
+      rear_point_min.y = -0.15;
+      rear_point_max.y =  0.15;
+      rear_point_max.z =  0.10;
+      rear_point_min.z = -0.50;
+
+
+
+      boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_front_base_link (new pcl::PointCloud<pcl::PointXYZI>());
+      boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_rear_base_link  (new pcl::PointCloud<pcl::PointXYZI>());
+
+      cliff_aggregator_->getAggregateCloudBbxFiltered(cloud_front_base_link, "base_link", front_point_min, front_point_max, 0.0, 25);
+      cliff_aggregator_->getAggregateCloudBbxFiltered(cloud_rear_base_link,  "base_link", rear_point_min,  rear_point_max,  0.0, 25);
+
+      // Publish cloud for debugging if requested
+      if (debug_cliff_pub_.getNumSubscribers() > 0){
+        sensor_msgs::PointCloud2 cloud_out;
+        pcl::toROSMsg(*cloud_rear_base_link, cloud_out);
+
+        cloud_out.header.stamp = ros::Time::now();
+        cloud_out.header.frame_id = "base_link";
+
+        debug_cliff_pub_.publish (cloud_out);
+      }
+
+      float_t front_z_average = 0;
+      float_t rear_z_average  = 0;
+
+      for(pcl::PointCloud<pcl::PointXYZI>::iterator it  = cloud_front_base_link->points.begin();
+                                                      it != cloud_front_base_link->points.end();
+                                                      it++){
+        front_z_average+= it->z;
+      }
+
+      for(pcl::PointCloud<pcl::PointXYZI>::iterator it  = cloud_rear_base_link->points.begin();
+                                                      it != cloud_rear_base_link->points.end();
+                                                      it++){
+        rear_z_average+= it->z;
+      }
+
+      if(cloud_front_base_link->size() >0){
+          front_z_average/=cloud_front_base_link->size();
+          front_z_average*=-100.0;
+      }else{
+          front_z_average = 0;
+      }
+
+      if(cloud_rear_base_link->size() >0){
+          rear_z_average/=cloud_rear_base_link->size();
+          rear_z_average*=-100.0;
+      }else{
+          rear_z_average = 0;
+      }
+
+      cliff_state.data =  (char) (rear_z_average);
+      return(cliff_state);
   }
 
   bool isInCollisionOcto(const Eigen::Affine3d& pose)
@@ -491,13 +575,17 @@ protected:
   ros::Publisher safe_twist_pub_;
   ros::Publisher marker_pub_;
   ros::Publisher collision_state_pub_;
+  ros::Publisher cliff_state_pub_;
 
   ros::Publisher debug_cloud_pub_;
+  ros::Publisher debug_cliff_pub_;
 
   boost::shared_ptr<tf::TransformListener> tfl_;
   ros::Duration wait_duration_;
 
   boost::shared_ptr<vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI> > cloud_aggregator_;
+  boost::shared_ptr<vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI> > cliff_aggregator_;
+
 
   ros::Subscriber cloud_sub_;
 
