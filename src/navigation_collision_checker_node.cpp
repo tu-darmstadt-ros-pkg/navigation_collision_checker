@@ -124,7 +124,7 @@ public:
     tfl_.reset(new tf::TransformListener());
 
     cloud_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500));
-    cliff_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_));
+    cliff_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500, true));
 
     cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 30, &NavCollisionChecker::filteredCloudCallback, this);
 
@@ -154,7 +154,6 @@ public:
     cloud_aggregator_->addCloud(pc_);
     cliff_aggregator_->addCloud(pc_);
     //ROS_INFO("cloud agg size: %d", (int)cloud_aggregator_->size());
-
   }
 
   void robotPoseCallback(const geometry_msgs::PoseStampedConstPtr msg)
@@ -292,77 +291,69 @@ public:
     marker_pub_.publish(marker_array_);
     //safe_twist_pub_.publish(twist_out);
 
-    //Cliff detector start
+    //Cliff detector
     cliff_state_pub_.publish (this->getCliffState());
-    //Cliff detector finish
   }
 
   std_msgs::Char getCliffState(void){
       std_msgs::Char cliff_state;
 
-      geometry_msgs::Point front_point_min;
-      geometry_msgs::Point front_point_max;
-      geometry_msgs::Point rear_point_min;
-      geometry_msgs::Point rear_point_max;
+      geometry_msgs::Point cliff_point_min;
+      geometry_msgs::Point cliff_point_max;
 
+      cliff_point_min.x = -0.50;
+      cliff_point_max.x = -0.40;
+      cliff_point_max.y =  0.15;
+      cliff_point_min.y = -0.15;
+      cliff_point_max.z =  0.10;
+      cliff_point_min.z = -0.50;
 
-      front_point_min.x =  0.40;
-      front_point_max.x =  0.50;
-      front_point_min.y = -0.15;
-      front_point_max.y =  0.15;
-      front_point_max.z =  0.10;
-      front_point_min.z = -0.50;
-
-      rear_point_min.x = -0.50;
-      rear_point_max.x = -0.40;
-      rear_point_min.y = -0.15;
-      rear_point_max.y =  0.15;
-      rear_point_max.z =  0.10;
-      rear_point_min.z = -0.50;
-
-
-
-      boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_front_base_link (new pcl::PointCloud<pcl::PointXYZI>());
       boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_rear_base_link  (new pcl::PointCloud<pcl::PointXYZI>());
+      boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_front_base_link (new pcl::PointCloud<pcl::PointXYZI>());
 
-      cliff_aggregator_->getAggregateCloudBbxFiltered(cloud_front_base_link, "base_link", front_point_min, front_point_max, 0.0, 25);
-      cliff_aggregator_->getAggregateCloudBbxFiltered(cloud_rear_base_link,  "base_link", rear_point_min,  rear_point_max,  0.0, 25);
+      cliff_aggregator_->getAggregateCloudBbxFiltered(cloud_rear_base_link,  "base_link", cliff_point_min, cliff_point_max, 0.0, 1);
+
+      cliff_point_min.x =  0.40;
+      cliff_point_max.x =  0.50;
+
+      cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_front_base_link, "base_link", cliff_point_min, cliff_point_max, 0.0, 1);
+
+      //cloud_aggregator_->getAggregateCloud(cloud_cliff_base_link, "base_link", 1);
+
+      pcl::toROSMsg(*cloud_rear_base_link, cloud_out_);
 
       // Publish cloud for debugging if requested
       if (debug_cliff_pub_.getNumSubscribers() > 0){
-        sensor_msgs::PointCloud2 cloud_out;
-        pcl::toROSMsg(*cloud_rear_base_link, cloud_out);
+        cloud_out_.header.stamp = ros::Time::now();
+        cloud_out_.header.frame_id = "base_link";
 
-        cloud_out.header.stamp = ros::Time::now();
-        cloud_out.header.frame_id = "base_link";
-
-        debug_cliff_pub_.publish (cloud_out);
+        debug_cliff_pub_.publish (cloud_out_);
       }
 
-      float_t front_z_average = 0;
+      float_t  front_z_average = 0;
       float_t rear_z_average  = 0;
 
       for(pcl::PointCloud<pcl::PointXYZI>::iterator it  = cloud_front_base_link->points.begin();
-                                                      it != cloud_front_base_link->points.end();
-                                                      it++){
+                                                    it != cloud_front_base_link->points.end();
+                                                    it++){
         front_z_average+= it->z;
       }
 
       for(pcl::PointCloud<pcl::PointXYZI>::iterator it  = cloud_rear_base_link->points.begin();
-                                                      it != cloud_rear_base_link->points.end();
-                                                      it++){
+                                                    it != cloud_rear_base_link->points.end();
+                                                    it++){
         rear_z_average+= it->z;
       }
 
-      if(cloud_front_base_link->size() >0){
-          front_z_average/=cloud_front_base_link->size();
+      if(cloud_front_base_link->points.size() >0){
+          front_z_average/=cloud_front_base_link->points.size();
           front_z_average*=-100.0;
       }else{
           front_z_average = 0;
       }
 
-      if(cloud_rear_base_link->size() >0){
-          rear_z_average/=cloud_rear_base_link->size();
+      if(cloud_rear_base_link->points.size() >0){
+          rear_z_average/=cloud_rear_base_link->points.size();
           rear_z_average*=-100.0;
       }else{
           rear_z_average = 0;
@@ -607,6 +598,8 @@ protected:
   visualization_msgs::MarkerArray marker_array_;
 
   dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfig> dyn_rec_server_;
+
+  sensor_msgs::PointCloud2 cloud_out_;
 
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
