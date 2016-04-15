@@ -30,7 +30,7 @@
 
 #include <laser_geometry/laser_geometry.h>
 #include <std_msgs/Bool.h>
-#include <std_msgs/Char.h>
+#include <std_msgs/Int8.h>
 
 #include <tf/transform_listener.h>
 
@@ -111,12 +111,15 @@ public:
     safe_twist_pub_ = nh_.advertise<geometry_msgs::Twist>("cmd_vel_safe", 1, false);
 
     ros::NodeHandle pnh("~");
-    marker_pub_ = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1,false);
-    collision_state_pub_ = pnh.advertise<moveit_msgs::DisplayRobotState>("in_collision_state", 1, false);
-    cliff_state_pub_ = pnh.advertise<std_msgs::Char>("cliff_state", 1, false);
-    debug_cloud_pub_ = pnh.advertise<sensor_msgs::PointCloud2>("fast_coll_debug_cloud", 1, false);
-    debug_cliff_pub_ = pnh.advertise<sensor_msgs::PointCloud2>("debug_cliff", 1, false);
+    marker_pub_            = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1, false);
+    collision_state_pub_   = pnh.advertise<moveit_msgs::DisplayRobotState>( "in_collision_state",          1, false);
+    front_cliff_state_pub_ = pnh.advertise<std_msgs::Int8>(                 "cliff_state/front",           1, false);
+    rear_cliff_state_pub_  = pnh.advertise<std_msgs::Int8>(                 "cliff_state/rear",            1, false);
+    debug_cloud_pub_       = pnh.advertise<sensor_msgs::PointCloud2>(       "fast_coll_debug_cloud",       1, false);
+    debug_cliff_pub_       = pnh.advertise<sensor_msgs::PointCloud2>(       "debug_cliff",                 1, false);
 
+    front_cliff_state_.data = 0;
+    rear_cliff_state_.data  = 0;
 
     check_timer_ = pnh.createTimer(ros::Duration(0.05), &NavCollisionChecker::checkTimerCallback, this, false);
 
@@ -292,12 +295,10 @@ public:
     //safe_twist_pub_.publish(twist_out);
 
     //Cliff detector
-    cliff_state_pub_.publish (this->getCliffState());
+    this->getCliffState();
   }
 
-  std_msgs::Char getCliffState(void){
-      std_msgs::Char cliff_state;
-
+  void getCliffState(void){
       geometry_msgs::Point cliff_point_min;
       geometry_msgs::Point cliff_point_max;
 
@@ -320,17 +321,17 @@ public:
 
       //cloud_aggregator_->getAggregateCloud(cloud_cliff_base_link, "base_link", 1);
 
-      pcl::toROSMsg(*cloud_rear_base_link, cloud_out_);
 
       // Publish cloud for debugging if requested
       if (debug_cliff_pub_.getNumSubscribers() > 0){
+        pcl::toROSMsg(*cloud_rear_base_link, cloud_out_);
         cloud_out_.header.stamp = ros::Time::now();
         cloud_out_.header.frame_id = "base_link";
 
         debug_cliff_pub_.publish (cloud_out_);
       }
 
-      float_t  front_z_average = 0;
+      float_t front_z_average = 0;
       float_t rear_z_average  = 0;
 
       for(pcl::PointCloud<pcl::PointXYZI>::iterator it  = cloud_front_base_link->points.begin();
@@ -346,21 +347,19 @@ public:
       }
 
       if(cloud_front_base_link->points.size() >0){
-          front_z_average/=cloud_front_base_link->points.size();
-          front_z_average*=-100.0;
-      }else{
-          front_z_average = 0;
+          front_z_average /= cloud_front_base_link->points.size();
+          front_z_average *= 100.0;
+          front_cliff_state_.data = front_z_average;
       }
 
       if(cloud_rear_base_link->points.size() >0){
-          rear_z_average/=cloud_rear_base_link->points.size();
-          rear_z_average*=-100.0;
-      }else{
-          rear_z_average = 0;
+          rear_z_average  /= cloud_rear_base_link->points.size();
+          rear_z_average  *= 100.0;
+          rear_cliff_state_.data =  rear_z_average;
       }
 
-      cliff_state.data =  (char) (rear_z_average);
-      return(cliff_state);
+      front_cliff_state_pub_.publish (front_cliff_state_);
+      rear_cliff_state_pub_.publish  (rear_cliff_state_);
   }
 
   bool isInCollisionOcto(const Eigen::Affine3d& pose)
@@ -566,7 +565,8 @@ protected:
   ros::Publisher safe_twist_pub_;
   ros::Publisher marker_pub_;
   ros::Publisher collision_state_pub_;
-  ros::Publisher cliff_state_pub_;
+  ros::Publisher front_cliff_state_pub_;
+  ros::Publisher rear_cliff_state_pub_;
 
   ros::Publisher debug_cloud_pub_;
   ros::Publisher debug_cliff_pub_;
@@ -600,6 +600,9 @@ protected:
   dynamic_reconfigure::Server<navigation_collision_checker::NavCollisionCheckerConfig> dyn_rec_server_;
 
   sensor_msgs::PointCloud2 cloud_out_;
+
+  std_msgs::Int8 front_cliff_state_;
+  std_msgs::Int8 rear_cliff_state_;
 
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
