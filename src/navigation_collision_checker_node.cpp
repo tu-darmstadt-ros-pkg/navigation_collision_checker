@@ -113,13 +113,13 @@ public:
     ros::NodeHandle pnh("~");
     marker_pub_            = pnh.advertise<visualization_msgs::MarkerArray>("nav_collision_check_markers", 1, false);
     collision_state_pub_   = pnh.advertise<moveit_msgs::DisplayRobotState>( "in_collision_state",          1, false);
-    front_cliff_state_pub_ = pnh.advertise<std_msgs::Int8>(                 "cliff_state/front",           1, false);
-    rear_cliff_state_pub_  = pnh.advertise<std_msgs::Int8>(                 "cliff_state/rear",            1, false);
+    //front_cliff_state_pub_ = pnh.advertise<std_msgs::Int8>(                 "cliff_state/front",           1, false);
+    //rear_cliff_state_pub_  = pnh.advertise<std_msgs::Int8>(                 "cliff_state/rear",            1, false);
     debug_cloud_pub_       = pnh.advertise<sensor_msgs::PointCloud2>(       "fast_coll_debug_cloud",       1, false);
-    debug_cliff_pub_       = pnh.advertise<sensor_msgs::PointCloud2>(       "debug_cliff",                 1, false);
+    //debug_cliff_pub_       = pnh.advertise<sensor_msgs::PointCloud2>(       "debug_cliff",                 1, false);
 
-    front_cliff_state_.data = 0;
-    rear_cliff_state_.data  = 0;
+    //front_cliff_state_.data = 0;
+    //rear_cliff_state_.data  = 0;
 
     check_timer_ = pnh.createTimer(ros::Duration(0.05), &NavCollisionChecker::checkTimerCallback, this, false);
 
@@ -127,7 +127,7 @@ public:
     tfl_.reset(new tf::TransformListener());
 
     cloud_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500));
-    cliff_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500, true));
+    //cliff_aggregator_.reset(new vigir_worldmodel::PointCloudAggregator<pcl::PointXYZI>(tfl_, 500, true));
 
     cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 30, &NavCollisionChecker::filteredCloudCallback, this);
 
@@ -155,7 +155,7 @@ public:
     boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > pc_ (new pcl::PointCloud<pcl::PointXYZI>());
     pcl::fromROSMsg(msg, *pc_);
     cloud_aggregator_->addCloud(pc_);
-    cliff_aggregator_->addCloud(pc_);
+    //cliff_aggregator_->addCloud(pc_);
     //ROS_INFO("cloud agg size: %d", (int)cloud_aggregator_->size());
   }
 
@@ -295,9 +295,10 @@ public:
     //safe_twist_pub_.publish(twist_out);
 
     //Cliff detector
-    this->getCliffState();
+    //this->getCliffState();
   }
 
+  /*
   void getCliffState(void){
       geometry_msgs::Point cliff_point_min;
       geometry_msgs::Point cliff_point_max;
@@ -401,6 +402,7 @@ public:
 
     return false;
   }
+  */
 
   bool isInCollisionTraversabilityMap(const Eigen::Affine3d& pose)
   {
@@ -453,7 +455,7 @@ public:
 
     boost::shared_ptr<pcl::PointCloud<pcl::PointXYZI> > cloud_base_link (new pcl::PointCloud<pcl::PointXYZI>());
 
-    cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_base_link, "base_link", point_min, point_max, 0.0, p_reactive_aggregation_size);
+    cloud_aggregator_->getAggregateCloudBbxFiltered(cloud_base_link, "base_link", point_min, point_max, 0.0, "",  p_reactive_aggregation_size);
 
     //cloud_aggregator_->getAggregateCloud(cloud_base_link, "base_link", p_reactive_aggregation_size);
 
@@ -601,8 +603,8 @@ protected:
 
   sensor_msgs::PointCloud2 cloud_out_;
 
-  std_msgs::Int8 front_cliff_state_;
-  std_msgs::Int8 rear_cliff_state_;
+  //std_msgs::Int8 front_cliff_state_;
+  //std_msgs::Int8 rear_cliff_state_;
 
   double p_roll_out_step_time_;
   int p_roll_out_steps_;
