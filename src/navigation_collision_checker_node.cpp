@@ -132,7 +132,7 @@ public:
     cloud_sub_ = nh_.subscribe("/scan_cloud_filtered", 30, &NavCollisionChecker::filteredCloudCallback, this);
 
     ros::SubscribeOptions so =
-      ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_raw", 1,
+      ros::SubscribeOptions::create<geometry_msgs::Twist>("cmd_vel_in", 1,
           boost::bind(&NavCollisionChecker::twistCallback, this, _1),
           ros::VoidPtr(), &queue_);
 
@@ -237,7 +237,7 @@ public:
     {
       boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
       if (!latest_twist_.get()){
-        ROS_WARN_THROTTLE(3.0, "Cannot get latest twist msg. Cannot compute collision check. This message is throttled.");
+        //ROS_WARN_THROTTLE(3.0, "Cannot get latest twist msg. Cannot compute collision check. This message is throttled.");
         return;
       }
       latest_twist_cpy = *latest_twist_;
