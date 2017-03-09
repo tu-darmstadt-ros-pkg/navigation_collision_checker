@@ -6,6 +6,8 @@
     <remap from="/dynamic_map" to="/hazard_model/hazard_grid_map"/>
     <remap from="/cmd_vel_in" to="/cmd_vel_teleop" />
     <remap from="/cmd_vel_safe" to="/cmd_vel_teleop_safe" />
+    <remap from="/external_move_inhibit" to="/human_close_to_robot" />    
+    
     
     <param name="aggregator_frames" value="base_link" />
     <param name="pass_through" value="false" />
