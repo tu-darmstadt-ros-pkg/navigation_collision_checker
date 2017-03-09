@@ -62,6 +62,7 @@ public:
 
   NavCollisionChecker()
     : estimated_state_in_collision_(false)
+    , external_move_inhibited_(false)
   {
     ros::NodeHandle nh_;
 
@@ -98,6 +99,8 @@ public:
     octomap_sub_ = nh_.subscribe("octomap", 2, &NavCollisionChecker::octomapCallback, this);
     robot_pose_sub_ = nh_.subscribe("robot_pose", 1, &NavCollisionChecker::robotPoseCallback, this);
     joint_state_sub_ = nh_.subscribe("joint_states", 5, &NavCollisionChecker::jointStatesCallback, this);
+
+    external_move_inhibit_sub_ = nh_.subscribe("external_move_inhibit", 3, &NavCollisionChecker::externalMoveInhibitCallback, this);
 
 
     //desired_twist_sub_ = nh_.subscribe("cmd_vel_raw", 1, &NavCollisionChecker::twistCallback, this);
@@ -169,6 +172,12 @@ public:
     moveit::core::jointStateToRobotState(*msg, *robot_state_);
   }
 
+  void externalMoveInhibitCallback(const std_msgs::Bool& msg)
+  {
+    boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
+    external_move_inhibited_ = msg.data;
+  }
+
   void traversabilityMapCallback(const nav_msgs::OccupancyGrid& msg)
   {
     // Update typically takes around 20ms on a i7 running sim+onboard
@@ -191,7 +200,7 @@ public:
 
     {
       boost::mutex::scoped_lock scoped_lock(collision_state_lock_);
-      in_collision = estimated_state_in_collision_;
+      in_collision = estimated_state_in_collision_ || (p_use_external_move_inhibit_signal && external_move_inhibited_);
       latest_twist_ = msg;
     }
 
@@ -546,6 +555,8 @@ public:
     p_use_traversability_map_collision_avoidance = config.use_traversability_map_collision_avoidance;
     p_use_filtered_cloud_collision_avoidance = config.use_filtered_cloud_collision_avoidance;
 
+    p_use_external_move_inhibit_signal = config.use_external_move_inhibit_signal;
+
     ROS_INFO("Set ranges x: %f x_r: %f, z: %f z_r: %f y: %f",
              p_reactive_lidar_avoid_x_min,
              p_reactive_lidar_avoid_x_range,
@@ -561,6 +572,7 @@ protected:
   ros::Subscriber robot_pose_sub_;
   ros::Subscriber desired_twist_sub_;
   ros::Subscriber joint_state_sub_;
+  ros::Subscriber external_move_inhibit_sub_;
 
   ros::Subscriber traversability_map_sub_;
 
@@ -621,9 +633,11 @@ protected:
 
   bool p_use_traversability_map_collision_avoidance;
   bool p_use_filtered_cloud_collision_avoidance;
-
+  bool p_use_external_move_inhibit_signal;
 
   bool estimated_state_in_collision_;
+
+  bool external_move_inhibited_;
 
   // Custom Callback Queue
   ros::CallbackQueue queue_;

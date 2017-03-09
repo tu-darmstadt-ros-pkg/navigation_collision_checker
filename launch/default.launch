@@ -3,7 +3,7 @@
 <launch>
   <node name="navigation_collision_checker_node"  pkg="navigation_collision_checker" type="navigation_collision_checker_node" respawn="true" output="screen">
     <remap from="octomap" to="octomap_near_robot"/>
-    <remap from="/dynamic_map" to="/map"/>
+    <remap from="/dynamic_map" to="/hazard_model/hazard_grid_map"/>
     <remap from="/cmd_vel_in" to="/cmd_vel_teleop" />
     <remap from="/cmd_vel_safe" to="/cmd_vel_teleop_safe" />
     
