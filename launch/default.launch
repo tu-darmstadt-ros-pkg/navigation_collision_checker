@@ -9,6 +9,7 @@
     <remap from="/external_move_inhibit" to="/human_close_to_robot" />    
     
     
+    <param name="use_external_move_inhibit_signal" value="false" />    
     <param name="aggregator_frames" value="base_link" />
     <param name="pass_through" value="false" />
   </node>
